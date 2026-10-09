@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- AstrBot 品牌紫渐变背景 -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="108"
+                android:endY="108"
+                android:startX="0"
+                android:startY="0"
+                android:type="linear">
+                <item
+                    android:color="#8B7CFF"
+                    android:offset="0.0" />
+                <item
+                    android:color="#6550C8"
+                    android:offset="0.55" />
+                <item
+                    android:color="#45338F"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- 装饰小星星 -->
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M20,22 L21.2,25.8 L25,27 L21.2,28.2 L20,32 L18.8,28.2 L15,27 L18.8,25.8 Z" />
+    <path
+        android:fillColor="#26FFFFFF"
+        android:pathData="M88,74 L88.9,77.1 L92,78 L88.9,78.9 L88,82 L87.1,78.9 L84,78 L87.1,77.1 Z" />
+</vector>

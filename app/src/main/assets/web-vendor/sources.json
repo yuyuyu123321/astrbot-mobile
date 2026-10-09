@@ -1,0 +1,26 @@
+[
+  {
+    "file": "ort.wasm.min.js",
+    "url": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js",
+    "sha256": "65e09376df69107e881b5c34d2d37aed333a366b6d941073ec518168e269b87d",
+    "size": 48327
+  },
+  {
+    "file": "vad.bundle.min.js",
+    "url": "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/bundle.min.js",
+    "sha256": "a6770e945ffa5767beafc0bc2c5a8372444b2593849e3db709414c29b0f3ba0b",
+    "size": 68639
+  },
+  {
+    "file": "ONNX-LICENSE",
+    "url": "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.22.0/LICENSE",
+    "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+    "size": 1073
+  },
+  {
+    "file": "VAD-LICENSE",
+    "url": "https://cdn.jsdelivr.net/gh/ricky0123/vad@master/LICENSE",
+    "size": 1896,
+    "sha256": "239ebca4207803d3507124517c0dd6324c0d5cf73e1c486ade16bac1788f4a79"
+  }
+]

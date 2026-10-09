@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 天线杆 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52.5,37h3v7h-3z" />
+    <!-- 天线顶端四角星 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,23 L56.2,28.8 L62,31 L56.2,33.2 L54,39 L51.8,33.2 L46,31 L51.8,28.8 Z" />
+    <!-- 左耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M23,54h7v8h-7z" />
+    <!-- 右耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,54h7v8h-7z" />
+    <!-- 机器人头部（圆角矩形） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,42 L70,42 Q78,42 78,50 L78,68 Q78,76 70,76 L38,76 Q30,76 30,68 L30,50 Q30,42 38,42 Z" />
+    <!-- 左眼 -->
+    <path
+        android:fillColor="#6550C8"
+        android:pathData="M44,58 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0 Z" />
+    <!-- 右眼 -->
+    <path
+        android:fillColor="#6550C8"
+        android:pathData="M64,58 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0 Z" />
+    <!-- 微笑 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M48,64 Q54,70 60,64"
+        android:strokeWidth="2.2"
+        android:strokeColor="#6550C8"
+        android:strokeLineCap="round" />
+</vector>
