@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -455,6 +456,21 @@ fun AiChatScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(12.dp))
+                            // 工具开关：关掉后兼容不支持 function calling 的模型
+                            var toolsEnabled by remember { mutableStateOf(settings.aiToolsEnabled) }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("允许 AI 操作本 App", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "开启后可部署、启停服务、执行命令。若模型不支持工具调用，" +
+                                            "出现 400 或空回复时请关闭此项。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(checked = toolsEnabled, onCheckedChange = { toolsEnabled = it })
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(
                                     onClick = { showConfig = false },
@@ -467,6 +483,7 @@ fun AiChatScreen(
                                         settings.aiKey = key.trim()
                                         settings.aiModel = model.trim()
                                         settings.aiProtocol = protocol
+                                        settings.aiToolsEnabled = toolsEnabled
                                         apiKey = key.trim()
                                         showConfig = false
                                     },
