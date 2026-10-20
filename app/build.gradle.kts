@@ -14,8 +14,8 @@ android {
         // 二进制文件（SELinux untrusted_app 域限制），内嵌 proot 运行时依赖该能力，
         // 与 Termux 采用相同策略。
         targetSdk = 28
-        versionCode = 5
-        versionName = "2.1"
+        versionCode = 6
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
