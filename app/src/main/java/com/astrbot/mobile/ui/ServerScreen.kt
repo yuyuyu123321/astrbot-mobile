@@ -85,34 +85,6 @@ import rikka.shizuku.Shizuku
 import java.net.InetSocketAddress
 import java.net.Socket
 
-private data class Adapter(
-    val displayName: String,
-    val icon: ImageVector,
-    val repo: String,
-    val asset: String,
-    val hint: String,
-    val extra: String
-)
-
-private val ADAPTERS = listOf(
-    Adapter(
-        displayName = "NapCat",
-        icon = Icons.Rounded.SmartToy,
-        repo = "NapNeko/NapCatQQ",
-        asset = "NapCat.Shell.zip",
-        hint = "Android 推荐的 QQ 接入方案",
-        extra = "提示：NapCat.Shell 需配合 Linux QQ 运行，详见 napcat.icu 文档。"
-    ),
-    Adapter(
-        displayName = "LLOneBot",
-        icon = Icons.Rounded.Extension,
-        repo = "LLOneBot/LLOneBot",
-        asset = "LLOneBot.zip",
-        hint = "桌面 Linux QQ 插件，非 Android QQ 插件",
-        extra = "提示：LLOneBot 需要兼容的桌面 QQ 环境；下载成功不代表已可运行，不支持直接修改 Android QQ。"
-    )
-)
-
 private val ConsoleBg = Color(0xFF17141F)
 private val ConsoleText = Color(0xFFB8AEE8)
 private val StatusGreen = Color(0xFF4CAF50)
@@ -135,7 +107,6 @@ fun ServerScreen(onOpenClient: () -> Unit) {
     var deployed by remember { mutableStateOf(RuntimeEnv.isDeployed(context)) }
     var serverRunning by remember { mutableStateOf(false) }
     var serviceBusy by remember { mutableStateOf(false) }
-    var adapterMarkers by remember { mutableStateOf(ADAPTERS.associate { it.displayName to false }) }
     var alpineMirror by remember { mutableStateOf(settings.alpineMirror) }
     var gitMirror by remember { mutableStateOf(settings.adapterSource) }
     var logText by remember { mutableStateOf("") }
@@ -194,9 +165,6 @@ fun ServerScreen(onOpenClient: () -> Unit) {
             runtimeReady = RuntimeEnv.isReady(context)
             deployed = RuntimeEnv.isDeployed(context)
             serverRunning = withContext(Dispatchers.IO) { probeServer() }
-            adapterMarkers = ADAPTERS.associate {
-                it.displayName to RuntimeEnv.adapterMarker(context, it.displayName).exists()
-            }
             logText = withContext(Dispatchers.IO) { RuntimeEnv.tailLog(context) }
             batteryIgnored = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
                 .isIgnoringBatteryOptimizations(context.packageName)
@@ -480,49 +448,12 @@ fun ServerScreen(onOpenClient: () -> Unit) {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ---------- QQ 适配器 ----------
-            SectionCard(title = "QQ 适配器", icon = Icons.Rounded.Extension) {
-                ADAPTERS.forEach { adapter ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(adapter.icon, null, modifier = Modifier.size(22.dp))
-                        Spacer(modifier = Modifier.size(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(adapter.displayName, fontWeight = FontWeight.Medium)
-                            Text(
-                                adapter.hint,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (adapterMarkers[adapter.displayName] == true) {
-                            Icon(
-                                Icons.Rounded.CheckCircle,
-                                contentDescription = "已安装",
-                                tint = StatusGreen,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    runTask("正在安装 ${adapter.displayName}…") {
-                                        RuntimeEnv.installAdapter(
-                                            context,
-                                            adapter.displayName,
-                                            adapter.repo,
-                                            adapter.asset,
-                                            gitMirror,
-                                            adapter.extra
-                                        ) { f -> progress = f }
-                                    }
-                                },
-                                enabled = busyLabel == null && runtimeReady && !serviceBusy && !serverRunning,
-                                shape = RoundedCornerShape(10.dp)
-                            ) { Text("安装") }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
+            // ---------- QQ 官方机器人 ----------
+            QQBotSectionCard(
+                runtimeReady = runtimeReady,
+                serverRunning = serverRunning,
+                onToast = { toast = it },
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
