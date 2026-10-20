@@ -94,12 +94,17 @@ class AiAgent(private val context: Context) {
             if (settings.aiKey.isBlank()) throw Exception("请先配置 API Key")
 
             history.add(Entry.User(userText))
-
             repeat(8) {
                 val reply = callApi(settings, onTextDelta)
                 if (reply.calls.isEmpty()) {
                     history.add(Entry.AssistantText(reply.text))
-                    return@withContext reply.text.ifBlank { "（无回复内容）" }
+                    return@withContext reply.text.ifBlank { "（模型没有返回内容，可能是接口不支持该模型或参数有误）" }
+                }
+                // 纯聊天模式不该出现工具调用；若出现了，直接返回文本并丢弃调用，
+                // 否则会在「模型想调工具 → 工具不存在」之间反复循环。
+                if (!settings.aiToolsEnabled) {
+                    history.add(Entry.AssistantText(reply.text))
+                    return@withContext reply.text.ifBlank { "（模型返回了无法执行的调用，请检查模型是否支持对话）" }
                 }
                 history.add(Entry.AssistantCalls(reply.calls))
 
@@ -164,10 +169,15 @@ class AiAgent(private val context: Context) {
                 throw Exception("API 返回 HTTP $code${hint?.let { "（$it）" } ?: ""}：${text.take(300)}")
             }
             conn.inputStream.bufferedReader().use { reader ->
-                while (true) {
+                var done = false
+                while (!done) {
                     val line = reader.readLine() ?: break
-                    if (line.startsWith("data:")) {
-                        onDataLine(line.substring(5).trim())
+                    if (!line.startsWith("data:")) continue
+                    val payload = line.substring(5).trim()
+                    if (payload == "[DONE]") {
+                        done = true
+                    } else if (payload.isNotEmpty()) {
+                        onDataLine(payload)
                     }
                 }
             }
@@ -247,9 +257,14 @@ class AiAgent(private val context: Context) {
         val body = JSONObject()
             .put("model", settings.aiModel)
             .put("messages", messages)
-            .put("tools", buildOpenAiTools())
-            .put("tool_choice", "auto")
             .put("stream", true)
+
+        // 只有开启工具且确实需要时才带 tools：
+        // 部分模型/中转接口不支持 function calling，带上 tools 会直接 400 或返回空回复。
+        if (settings.aiToolsEnabled) {
+            body.put("tools", buildOpenAiTools())
+            body.put("tool_choice", "auto")
+        }
 
         val textSb = StringBuilder()
         // index -> (id, name, argsBuilder)
@@ -291,8 +306,13 @@ class AiAgent(private val context: Context) {
         }
 
         val calls = callParts.values
-            .filter { it.first.isNotEmpty() && it.second.isNotEmpty() }
-            .map { ToolCall(it.first, it.second, it.third.toString()) }
+            .filter { it.second.isNotEmpty() }
+            .mapIndexed { idx, it ->
+                // 某些中转接口不返回 tool_call 的 id，缺失时补一个占位，
+                // 否则这条调用会被丢弃，模型永远等不到结果。
+                val id = it.first.ifBlank { "call_${System.currentTimeMillis()}_$idx" }
+                ToolCall(id, it.second, it.third.toString())
+            }
         return ApiReply(textSb.toString(), calls)
     }
 
@@ -349,9 +369,12 @@ class AiAgent(private val context: Context) {
             .put("max_tokens", 4096)
             .put("system", systemPrompt())
             .put("messages", messages)
-            .put("tools", buildAnthropicTools())
-            .put("tool_choice", JSONObject().put("type", "auto"))
             .put("stream", true)
+
+        if (settings.aiToolsEnabled) {
+            body.put("tools", buildAnthropicTools())
+            body.put("tool_choice", JSONObject().put("type", "auto"))
+        }
 
         val textSb = StringBuilder()
         val calls = mutableListOf<ToolCall>()
@@ -420,26 +443,59 @@ class AiAgent(private val context: Context) {
         } catch (_: Exception) {
             false
         }
-        return """
-你是 AstrBot 安卓客户端的内置 AI 助手，拥有对本 App 的完全控制权，可通过工具执行：
-- initialize_runtime：初始化内嵌 Linux 运行环境（Alpine + proot，约 10MB 下载）
-- deploy_astrbot：一键部署 AstrBot 服务端（安装 Python、拉源码、装依赖，耗时数分钟）
+        val toolsEnabled = SettingsRepository(context).aiToolsEnabled
+
+        val statusLine = "当前状态：运行环境=${if (ready) "已就绪" else "未初始化"}，" +
+            "AstrBot=${if (deployed) "已部署" else "未部署"}" +
+            if (running) "，服务正在运行" else ""
+
+        return if (!toolsEnabled) {
+            // 纯聊天模式：没有工具，侧重答疑和说明，避免 AI 承诺做不到的操作
+            """
+你是 AstrBot 安卓客户端里的助手，负责解答用户关于这个 App 和 AstrBot 的问题。
+
+$statusLine
+
+能力边界（重要）：
+- 当前运行在「纯聊天」模式，你无法直接操作 App，也不能部署、启停服务或执行命令。
+- 如果用户想让你动手做这些事，请告诉他在设置里打开「允许工具调用」，或直接使用界面按钮。
+
+可以做的事情：
+- 介绍 AstrBot 是什么、能做什么
+- 解释界面上的功能和按钮含义
+- 指导用户去 https://q.qq.com 创建 QQ 官方机器人
+- 回答常见的部署、端口、密码问题
+- 排查用户描述的错误现象
+
+回答要求：
+- 用中文，语气自然，像在跟人聊天，不要用生硬的条目罗列一切
+- 不知道的就说不知道，不要编造功能
+- 回答简洁，除非用户要求详细说明
+""".trim()
+        } else {
+            """
+你是 AstrBot 安卓客户端的内置 AI 助手，拥有对本 App 的控制能力，可通过工具执行：
+
+- initialize_runtime：初始化内嵌 Linux 运行环境（Alpine + proot）
+- deploy_astrbot：部署 AstrBot 服务端（安装 Python、拉源码、装依赖，耗时数分钟）
 - start_server / stop_server：启动 / 停止 AstrBot 服务端（WebUI 端口 6185）
-- install_adapter：安装 NapCat 或 LLOneBot QQ 适配器
-- exec_shell：在内嵌 Linux 环境（proot, Alpine）中执行任意 shell 命令
+- configure_qq_bot：配置 QQ 官方机器人（腾讯开放平台 q.qq.com，需 AppID + AppSecret）
+- exec_shell：在内嵌 Linux 环境中执行 shell 命令
 - read_console_log：查看控制台日志（排查问题首选）
 - get_app_status：查询当前各项状态
 - open_client：打开 AstrBot WebUI 客户端界面
 
-当前状态快照：运行环境=${if (ready) "就绪" else "未初始化"}，服务端=${if (deployed) "已部署" else "未部署"}${if (running) "，运行中" else ""}
+$statusLine
 
 行为准则：
-1. 收到任务直接行动，按依赖顺序调用工具（例如先初始化环境再部署再启动）
-2. 耗时操作前用一句话告知用户你打算做什么
-3. 破坏性操作（删除数据、重置环境）执行前先征得用户同意
-4. 工具失败时先调用 read_console_log 排查，再向用户解释原因
-5. 用简洁的中文回答
+1. 用户提问时先回答，不要为了用工具而用工具；能直接答的直接答
+2. 需要操作时按依赖顺序调用（先初始化环境，再部署，再启动）
+3. 耗时操作前用一句话说明你打算做什么
+4. 破坏性操作（删除数据、重置环境）必须先征得用户同意
+5. 工具失败先 read_console_log 排查，再解释原因
+6. 用中文回答，语气自然，不要机械罗列
 """.trim()
+        }
     }
 
     // ---------------- 工具实现 ----------------
@@ -451,8 +507,7 @@ class AiAgent(private val context: Context) {
                 .put("astrbotDeployed", RuntimeEnv.isDeployed(context))
                 .put("serverProcessAlive", RuntimeService.isServerProcessAlive)
                 .put("webUiReady", com.astrbot.mobile.runtime.ServerHealth.isReady())
-                .put("napcatInstalled", RuntimeEnv.adapterMarker(context, "NapCat").exists())
-                .put("llonebotInstalled", RuntimeEnv.adapterMarker(context, "LLOneBot").exists())
+                .put("qqBotConfigured", com.astrbot.mobile.runtime.QQBotConfig.load(context).isComplete)
                 .toString()
 
             "initialize_runtime" -> {
@@ -479,23 +534,38 @@ class AiAgent(private val context: Context) {
                 "停止指令已发出；请再次查询状态确认，不代表已停止"
             }
 
-            "install_adapter" -> {
-                val adapterName = args.optString("name", "NapCat")
-                val source = args.optString("source", "ghproxy")
-                val (repo, asset, extra) = when (adapterName.lowercase()) {
-                    "napcat" -> Triple(
-                        "NapNeko/NapCatQQ", "NapCat.Shell.zip",
-                        "NapCat.Shell 需配合 Linux QQ 在 proot 中运行，参考 napcat.icu 文档"
-                    )
-
-                    else -> Triple(
-                        "LLOneBot/LLOneBot", "LLOneBot.zip",
-                        "LLOneBot 是 LiteLoaderQQNT 插件，Android 上需要 Root 并修改 QQ 客户端"
-                    )
+            "configure_qq_bot" -> {
+                val appId = args.optString("appid", "")
+                val secret = args.optString("secret", "")
+                if (appId.isBlank() || secret.isBlank()) {
+                    throw Exception("需要同时提供 appid 和 secret（在 q.qq.com 的机器人资料页获取）")
                 }
-                val display = if (adapterName.lowercase() == "napcat") "NapCat" else "LLOneBot"
-                RuntimeEnv.installAdapter(context, display, repo, asset, source, extra) {}
-                    .fold({ "$display 安装完成（位于 /root/$display）\n$extra" }, { throw it })
+                val enabled = args.optBoolean("enable", true)
+                val groupC2C = args.optBoolean("group_c2c", true)
+                val guildDm = args.optBoolean("guild_dm", true)
+                val md = args.optBoolean("use_markdown", true)
+
+                val verify = com.astrbot.mobile.runtime.QQBotAuth.verify(appId, secret)
+                val verifyNote = when (verify) {
+                    is com.astrbot.mobile.runtime.QQBotAuth.Result.Ok ->
+                        "凭证校验通过（有效期 ${verify.expiresIn} 秒）"
+                    is com.astrbot.mobile.runtime.QQBotAuth.Result.Failed ->
+                        "凭证校验未通过：${verify.message}"
+                }
+
+                com.astrbot.mobile.runtime.QQBotConfig.save(
+                    context,
+                    com.astrbot.mobile.runtime.QQBotConfig.Settings(
+                        enabled = enabled,
+                        appId = appId,
+                        secret = secret,
+                        groupC2C = groupC2C,
+                        guildDirectMessage = guildDm,
+                        useMarkdown = md,
+                    )
+                )
+                "$verifyNote\nQQ 官方机器人配置已写入（${if (enabled) "已启用" else "未启用"}），重启服务端后生效。\n" +
+                    "注意：还需在 q.qq.com 后台把消息接收方式设为 WebSocket。"
             }
 
             "exec_shell" -> {
@@ -567,12 +637,16 @@ class AiAgent(private val context: Context) {
             Triple("start_server", "启动 AstrBot 服务端（前台服务保活，WebUI 端口 6185）", emptyParams()),
             Triple("stop_server", "停止 AstrBot 服务端", emptyParams()),
             Triple(
-                "install_adapter", "安装 QQ 平台适配器",
+                "configure_qq_bot", "配置 QQ 官方机器人（腾讯开放平台 q.qq.com）",
                 objParams(
                     JSONObject()
-                        .put("name", enumProp("NapCat", "LLOneBot", desc = "适配器名称"))
-                        .put("source", enumProp("ghproxy", "gh-proxy", "moeyy", "official", desc = "GitHub 加速源")),
-                    "name"
+                        .put("appid", JSONObject().put("type", "string").put("description", "机器人 AppID"))
+                        .put("secret", JSONObject().put("type", "string").put("description", "机器人 AppSecret"))
+                        .put("enable", JSONObject().put("type", "boolean").put("description", "是否启用，默认 true"))
+                        .put("group_c2c", JSONObject().put("type", "boolean").put("description", "接收消息列表私聊，默认 true"))
+                        .put("guild_dm", JSONObject().put("type", "boolean").put("description", "接收频道私聊，默认 true"))
+                        .put("use_markdown", JSONObject().put("type", "boolean").put("description", "主动消息用 Markdown，默认 true")),
+                    "appid", "secret"
                 )
             ),
             Triple(
