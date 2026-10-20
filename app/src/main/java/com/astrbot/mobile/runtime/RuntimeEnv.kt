@@ -95,6 +95,30 @@ object RuntimeEnv {
     private const val FALLBACK_ROOTFS_VERSION = "3.24.2"
     private const val FALLBACK_PROOT_APK = "proot-static-5.4.0-r2.apk"
 
+    /**
+     * 内置 rootfs 归档在 assets 中的位置。
+     * 全量内嵌版（bundled）把完整 AstrBot 本体打包进 APK，
+     * 首次启动只需解压，不再联网下载 rootfs / clone 源码 / pip 装依赖。
+     *
+     * 注意：扩展名必须避开 .gz/.tar/.zip —— AAPT2 会把它们当作归档自动解压并改名，
+     * 导致 assets 里文件名变化、体积翻倍且 noCompress 失效。用 .bin 可原样打包。
+     */
+    private const val BUNDLED_ROOTFS_ASSET = "rootfs/rootfs-template.bin"
+
+    /** 内置 AstrBot 本体在 rootfs 内的路径 */
+    private const val ASTROBOT_MAIN = "root/AstrBot/main.py"
+
+    /** 内置归档是否随包提供 */
+    fun hasBundledRootfs(context: Context): Boolean = try {
+        context.assets.open(BUNDLED_ROOTFS_ASSET).use { it.read() >= 0 }
+    } catch (_: Exception) {
+        false
+    }
+
+    /** rootfs 内是否已带完整 AstrBot 本体（全量内嵌版） */
+    fun isBundledDeploy(context: Context): Boolean =
+        File(rootfs(context), ASTROBOT_MAIN).isFile
+
     private fun openConnection(url: String): HttpURLConnection {
         return (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
@@ -184,15 +208,37 @@ object RuntimeEnv {
             val base = ALPINE_BASE[mirror] ?: ALPINE_BASE.getValue("aliyun")
             runtimeDir(context).mkdirs()
             logFile(context).writeText("")
-            appendLog(context, "===== 初始化运行环境（镜像: $mirror）=====")
-
-            onProgress("解析版本信息…", 0.02f)
-            val rootfsVer = resolveRootfsVersion(base)
-            appendLog(context, "rootfs=$rootfsVer, proot=bundled(proot-static)")
+            appendLog(context, "===== 初始化运行环境 =====")
 
             if (!prootBin(context).exists()) {
                 throw Exception("当前设备架构不受支持（仅支持 arm64 设备）")
             }
+
+            val rootfs = rootfs(context)
+
+            // 优先使用随 APK 内置的完整 rootfs（全量内嵌版）：
+            // 离线可用、装完即用，且 AstrBot 本体已在内，无需 clone / pip。
+            if (hasBundledRootfs(context)) {
+                appendLog(context, "检测到内置 rootfs，走离线解压路径")
+                onProgress("解压内置运行环境…", 0.05f)
+                rootfs.deleteRecursively()
+                rootfs.mkdirs()
+                TarGz.extractAsset(context, BUNDLED_ROOTFS_ASSET, rootfs) { f ->
+                    onProgress("解压内置运行环境（${(f * 100).toInt()}%）", 0.05f + f * 0.85f)
+                }
+                finalizeRootfs(context, rootfs, base, onProgress)
+                if (File(rootfs, ASTROBOT_MAIN).isFile) {
+                    deployMarker(context).writeText("bundled")
+                    appendLog(context, "内置 AstrBot 本体已就位，跳过联网部署")
+                }
+                appendLog(context, "===== 运行环境初始化完成（内置） =====")
+                return@withContext Result.success(Unit)
+            }
+
+            // 兜底：在线下载 Alpine minirootfs（轻量版行为，保持不变）
+            onProgress("解析版本信息…", 0.02f)
+            val rootfsVer = resolveRootfsVersion(base)
+            appendLog(context, "rootfs=$rootfsVer, proot=bundled(proot-static)")
 
             val rootfsTar = File(runtimeDir(context), "rootfs.tar.gz")
 
@@ -203,30 +249,43 @@ object RuntimeEnv {
             ) { f -> onProgress("下载根文件系统（${(f * 100).toInt()}%）", 0.05f + f * 0.6f) }
 
             onProgress("解压根文件系统…", 0.7f)
-            val rootfs = rootfs(context)
             rootfs.deleteRecursively()
             TarGz.extract(rootfsTar, rootfs)
             rootfsTar.delete()
 
-            // DNS 与软件源（proot 内生效）
-            File(rootfs, "etc/resolv.conf")
-                .writeText("nameserver 223.5.5.5\nnameserver 119.29.29.29\n")
-            File(rootfs, "etc/apk/repositories")
-                .writeText("$base/latest-stable/main\n$base/latest-stable/community\n")
-
-            onProgress("验证运行环境…", 0.92f)
-            val (_, testOut) = execInRootfs(context, "echo RUNTIME_OK && python3 --version 2>/dev/null; true")
-            if (!testOut.contains("RUNTIME_OK")) {
-                throw Exception("运行环境自检失败：$testOut")
-            }
-
-            onProgress("完成", 1f)
-            appendLog(context, "===== 运行环境初始化完成 =====")
+            finalizeRootfs(context, rootfs, base, onProgress)
             Result.success(Unit)
         } catch (e: Exception) {
             appendLog(context, "!! 初始化失败: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /** 解压/下载完成后的统一收尾：DNS、软件源、自检 */
+    private fun finalizeRootfs(
+        context: Context,
+        rootfs: File,
+        base: String,
+        onProgress: (stage: String, frac: Float) -> Unit
+    ) {
+        // DNS 与软件源（proot 内生效）
+        File(rootfs, "etc/resolv.conf")
+            .writeText("nameserver 223.5.5.5\nnameserver 119.29.29.29\n")
+        File(rootfs, "etc/apk/repositories")
+            .apply { parentFile?.mkdirs() }
+            .writeText("$base/latest-stable/main\n$base/latest-stable/community\n")
+
+        listOf("tmp", "var/tmp", "dev", "proc", "sys").forEach {
+            File(rootfs, it).mkdirs()
+        }
+
+        onProgress("验证运行环境…", 0.92f)
+        val (_, testOut) = execInRootfs(context, "echo RUNTIME_OK && python3 --version 2>/dev/null; true")
+        if (!testOut.contains("RUNTIME_OK")) {
+            throw Exception("运行环境自检失败：$testOut")
+        }
+
+        onProgress("完成", 1f)
     }
 
     // ---------------- 进程执行 ----------------
@@ -287,6 +346,14 @@ object RuntimeEnv {
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!isReady(context)) throw Exception("运行环境未初始化")
+
+            // 全量内嵌版：AstrBot 本体已随 rootfs 一起解压，无需 clone / pip。
+            if (isBundledDeploy(context)) {
+                appendLog(context, "检测到内置 AstrBot 本体，跳过联网部署")
+                deployMarker(context).writeText("bundled")
+                return@withContext Result.success(Unit)
+            }
+
             val gh = GIT_BASE[gitMirror] ?: GIT_BASE.getValue("ghproxy")
             val pip = PIP_BASE[pipMirror] ?: PIP_BASE.getValue("tuna")
             appendLog(context, "\n===== 部署 AstrBot（git: $gitMirror / pip: $pipMirror）=====")

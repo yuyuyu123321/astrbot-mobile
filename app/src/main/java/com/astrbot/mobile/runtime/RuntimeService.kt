@@ -159,6 +159,18 @@ class RuntimeService : Service() {
                 }
                 val rootfs = RuntimeEnv.rootfs(this)
                 check(File(rootfs, "root/AstrBot/main.py").isFile) { "AstrBot 尚未部署" }
+                // 首次启动前写入统一初始密码（仅当尚未设置过密码时），
+                // 并标记必须修改；用户改过密码后不会被覆盖。
+                try {
+                    if (DashboardPasswordReset.ensureInitialPassword(this)) {
+                        RuntimeEnv.appendLog(
+                            this,
+                            "已写入初始登录密码（用户名 astrbot），首次登录后请立即修改"
+                        )
+                    }
+                } catch (e: Exception) {
+                    RuntimeEnv.appendLog(this, "!! 写入初始密码失败: ${e.message}")
+                }
                 val tmp = File(rootfs, "tmp").apply { mkdirs() }
                 installBundledTimezoneData(rootfs)
                 val cmd = listOf(

@@ -12,8 +12,77 @@ import java.util.zip.GZIPInputStream
 object TarGz {
 
     fun extract(archive: File, dest: File) {
+        extractTo(dest) { GZIPInputStream(archive.inputStream().buffered()) }
+    }
+
+    /**
+     * 从 APK assets 中流式解压 tar.gz。
+     * 内置 rootfs 约 300MB，不能整体读入内存，必须走流式解压。
+     *
+     * @param onProgress 0f..1f，按已消费的压缩字节数 / 总压缩字节数估算
+     */
+    fun extractAsset(
+        context: android.content.Context,
+        assetPath: String,
+        dest: File,
+        onProgress: (Float) -> Unit = {}
+    ) {
+        val totalSize = try {
+            context.assets.openFd(assetPath).use { it.length }
+        } catch (_: Exception) {
+            0L
+        }
         dest.mkdirs()
-        GZIPInputStream(archive.inputStream().buffered()).use { gz ->
+        context.assets.open(assetPath, android.content.res.AssetManager.ACCESS_STREAMING).use { raw ->
+            val counting = CountingInputStream(raw, totalSize, onProgress)
+            extractTo(dest) { GZIPInputStream(counting, 64 * 1024) }
+        }
+        onProgress(1f)
+    }
+
+    /** 按压缩字节上报进度（避免解压时无反馈） */
+    private class CountingInputStream(
+        private val inner: InputStream,
+        private val total: Long,
+        private val onProgress: (Float) -> Unit
+    ) : InputStream() {
+        private var read = 0L
+        private var lastPct = -1
+
+        private fun report() {
+            if (total <= 0) return
+            val pct = (read * 100 / total).toInt()
+            if (pct != lastPct) {
+                lastPct = pct
+                onProgress((read.toFloat() / total).coerceIn(0f, 1f))
+            }
+        }
+
+        override fun read(): Int {
+            val b = inner.read()
+            if (b >= 0) {
+                read++
+                report()
+            }
+            return b
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            val n = inner.read(b, off, len)
+            if (n > 0) {
+                read += n
+                report()
+            }
+            return n
+        }
+
+        override fun available(): Int = inner.available()
+        override fun close() = inner.close()
+    }
+
+    private fun extractTo(dest: File, open: () -> InputStream) {
+        dest.mkdirs()
+        open().use { gz ->
             val header = ByteArray(512)
             var pendingName: String? = null
             while (true) {

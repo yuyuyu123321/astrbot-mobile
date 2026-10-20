@@ -11,3 +11,7 @@ local.properties
 *.log
 .env*
 !*.example
+
+# 内置 rootfs 归档（约 300MB，由 build_rootfs_template.sh 本地生成，不进版本库）
+app/src/main/assets/rootfs/*.bin
+app/src/main/assets/rootfs/*.gz

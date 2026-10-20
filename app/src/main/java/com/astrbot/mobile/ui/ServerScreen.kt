@@ -275,7 +275,15 @@ fun ServerScreen(onOpenClient: () -> Unit) {
                     enabled = busyLabel == null && !serviceBusy && !serverRunning && !runtimeReady,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (runtimeReady) "重新初始化运行环境" else "1. 初始化运行环境（约 10MB）") }
+                ) {
+                    Text(
+                        when {
+                            runtimeReady -> "重新初始化运行环境"
+                            RuntimeEnv.hasBundledRootfs(context) -> "1. 解压内置运行环境（离线，约 300MB）"
+                            else -> "1. 初始化运行环境（约 10MB）"
+                        }
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -306,7 +314,15 @@ fun ServerScreen(onOpenClient: () -> Unit) {
                     enabled = busyLabel == null && runtimeReady && !serviceBusy && !serverRunning,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (deployed) "重新部署 AstrBot" else "2. 部署 AstrBot 服务端") }
+                ) {
+                    Text(
+                        when {
+                            deployed -> "重新部署 AstrBot"
+                            RuntimeEnv.isBundledDeploy(context) -> "2. AstrBot 已内置（无需部署）"
+                            else -> "2. 部署 AstrBot 服务端"
+                        }
+                    )
+                }
 
                 busyLabel?.let { label ->
                     Spacer(modifier = Modifier.height(10.dp))

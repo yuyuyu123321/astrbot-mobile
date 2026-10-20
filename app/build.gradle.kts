@@ -14,8 +14,8 @@ android {
         // 二进制文件（SELinux untrusted_app 域限制），内嵌 proot 运行时依赖该能力，
         // 与 Termux 采用相同策略。
         targetSdk = 28
-        versionCode = 3
-        versionName = "1.3"
+        versionCode = 4
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -48,6 +48,12 @@ android {
             useLegacyPackaging = true
         }
     }
+
+    androidResources {
+        // 内置 rootfs 本身就是 gzip 压缩流，AAPT 再压一次只会白白增加体积与解压开销。
+        // 用 .bin 扩展名还能避开 AAPT2 对 .gz/.tar 的自动解包改名行为。
+        noCompress += listOf("bin")
+    }
 }
 
 // Force use of ARM64 binaries for AAPT2 in Proot environment
@@ -71,7 +77,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.core)
     implementation(libs.androidx.material.icons.extended)
-    // Shizuku API: permission/status integration; runtime launch remains disabled.
+    // Shizuku：以 shell(uid2000)身份启动服务端，脱离 App 进程族，免疫厂商冻结器
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     testImplementation(libs.junit)
