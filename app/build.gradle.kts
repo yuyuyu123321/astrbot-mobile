@@ -8,19 +8,27 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.astrbot.mobile"
+        applicationId = (project.findProperty("testAppId") as String?) ?: "com.astrbot.mobile"
         minSdk = 24
         // targetSdk 28：Android 10+ 禁止 targetSdk≥29 的 App 执行其数据目录中的
         // 二进制文件（SELinux untrusted_app 域限制），内嵌 proot 运行时依赖该能力，
         // 与 Termux 采用相同策略。
         targetSdk = 28
-        versionCode = 4
-        versionName = "2.0"
+        versionCode = 5
+        versionName = "2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
+
+    lint {
+        // targetSdk=28 是架构要求，不是疏漏：Android 10+ 禁止 targetSdk≥29 的 App
+        // 执行数据目录内的二进制，proot 会失效。Google Play 的上架规则不适用于本
+        // 项目（直接分发 APK），因此显式关闭这条检查，避免 release 构建被阻断。
+        disable += "ExpiredTargetSdkVersion"
+        checkReleaseBuilds = false
     }
 
     buildTypes {

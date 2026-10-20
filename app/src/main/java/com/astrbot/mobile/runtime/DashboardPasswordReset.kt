@@ -56,13 +56,35 @@ object DashboardPasswordReset {
     }
 
     /**
-     * 首次部署时写入统一初始密码，并把 `password_change_required` 置为 true。
-     * 只在配置文件已存在且尚未设置密码时调用，避免覆盖用户已改过的密码。
+     * 首次部署时确保初始密码生效。
+     *
+     * AstrBot 的加载顺序（astrbot/core/config/astrbot_config.py）：
+     * 1. 配置文件不存在 → 用默认配置写入，然后 `pbkdf2_password` 为空
+     * 2. 若 `pbkdf2_password` 与 `password` 都为空 → 生成随机密码并打印
+     *
+     * 也就是说，密码写入必须在「首次启动之前」完成。配置文件还不存在时，
+     * 我们预置一个最小 seed（只含 dashboard 段），由 AstrBot 启动时补齐其余字段，
+     * 这样 `pbkdf2_password` 已有值，随机生成逻辑不会触发。
      *
      * @return true 表示写入了初始密码
      */
     fun ensureInitialPassword(context: Context): Boolean {
-        val config = requireValidConfig(context)
+        val config = configFile(context)
+        config.parentFile?.mkdirs()
+
+        if (!config.isFile) {
+            // 配置尚未生成：预置最小 seed
+            val root = JSONObject()
+            val dashboard = JSONObject()
+            dashboard.put("username", "astrbot")
+            applyPassword(dashboard, INITIAL_PASSWORD)
+            dashboard.put("password_change_required", true)
+            root.put("dashboard", dashboard)
+            writeConfig(config, root)
+            setChangeRequired(context, true)
+            return true
+        }
+
         val root = JSONObject(config.readText(Charsets.UTF_8).removePrefix("\uFEFF"))
         val dashboard = root.optJSONObject("dashboard") ?: return false
 

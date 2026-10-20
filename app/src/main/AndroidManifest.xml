@@ -44,7 +44,7 @@
         <!-- Shizuku permission status; shell runtime execution is currently disabled. -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="com.astrbot.mobile.shizuku"
+            android:authorities="${applicationId}.shizuku"
             android:multiprocess="false"
             android:enabled="true"
             android:exported="true"

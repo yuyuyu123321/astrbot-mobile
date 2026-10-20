@@ -25,7 +25,13 @@ Two details worth knowing:
 
 ### First-run dashboard password
 
-The very first server start writes a fixed initial dashboard password (`123456`, user `astrbot`) only when no password has been set yet, and flags the account as needing a change. An existing password is never overwritten.
+The first server start seeds a fixed initial dashboard password (**`123456`**, user `astrbot`) and flags the account as needing a change. An existing password is never overwritten.
+
+Mechanism, because the ordering matters:
+
+- AstrBot generates a random password whenever `dashboard.pbkdf2_password` is absent from `cmd_config.json`. Writing the password *after* AstrBot creates the config is therefore too late.
+- This build instead pre-seeds a minimal `cmd_config.json` containing only the `dashboard` block (with the PBKDF2 + legacy MD5 hashes for `123456`) before the first start. AstrBot then fills in the remaining config on load, and the random-password path never triggers.
+- The seed is only written when the config file does not exist yet, or exists without a password. A password you set later survives upgrades.
 
 This is a deliberate convenience/security trade-off, not an upstream AstrBot behavior:
 
