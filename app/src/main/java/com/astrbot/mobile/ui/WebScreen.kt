@@ -30,6 +30,15 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.astrbot.mobile.runtime.DashboardPasswordReset
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,6 +82,12 @@ fun WebScreen(serverUrl: String) {
     var canGoBack by remember { mutableStateOf(false) }
     var reloadTrigger by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showReset by remember { mutableStateOf(false) }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var resetBusy by remember { mutableStateOf(false) }
+    var resetResult by remember { mutableStateOf<String?>(null) }
     fun openBrowser() {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(serverUrl))) }
         catch (_: Exception) { loadError = "未找到可打开此地址的浏览器" }
@@ -100,6 +115,38 @@ fun WebScreen(serverUrl: String) {
         }
     }
 
+    if (showReset) AlertDialog(
+        onDismissRequest = { if (!resetBusy) { showReset = false; newPassword = ""; confirmPassword = "" } },
+        title = { Text("重置本机 WebUI 密码") },
+        text = {
+            Column {
+                Text("请先在服务端页面停止 AstrBot。仅修改本机内嵌实例，重启服务端后新密码生效；远程 WebUI 不受影响。")
+                OutlinedTextField(newPassword, { newPassword = it }, label = { Text("新密码") },
+                    visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                OutlinedTextField(confirmPassword, { confirmPassword = it }, label = { Text("确认新密码") },
+                    visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                resetResult?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !resetBusy, onClick = {
+                if (newPassword != confirmPassword) { resetResult = "两次输入的密码不一致"; return@TextButton }
+                resetBusy = true
+                scope.launch {
+                    resetResult = try {
+                        withContext(Dispatchers.IO) { DashboardPasswordReset.reset(context, newPassword) }
+                    } catch (e: Exception) { e.message ?: "重置失败" }
+                    resetBusy = false
+                    if (resetResult?.startsWith("重置成功") == true) {
+                        newPassword = ""; confirmPassword = ""
+                    }
+                }
+            }) { Text(if (resetBusy) "正在处理…" else "确认重置") }
+        },
+        dismissButton = { TextButton(enabled = !resetBusy, onClick = {
+            showReset = false; newPassword = ""; confirmPassword = ""
+        }) { Text("关闭") } }
+    )
     Scaffold(
         topBar = {
             Column {
@@ -121,6 +168,7 @@ fun WebScreen(serverUrl: String) {
                         }) {
                             Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
                         }
+                        TextButton(onClick = { resetResult = null; showReset = true }) { Text("重置密码") }
                         TextButton(onClick = { openBrowser() }) { Text("浏览器") }
                     }
                 )
